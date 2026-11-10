@@ -129,3 +129,25 @@ This document records key technical decisions, options evaluated, and the ration
   - `DirectArrayOrderBook` delivers **7.39M ops/sec** (vs 5.47M in `std::map`), a **35% throughput speedup**.
   - Mean latency drops from **162 ns** to **108 ns** (33.5% lower).
   - Most critically, tail latency at p99.9 collapses from **10,440 ns down to 1,720 ns** (6x lower tail latency), because flat array indexing eliminates heap node allocations and tree rebalancing rotations.
+
+
+---
+
+## ADR-009: Deterministic Replay Engine & Canonical State Hashing
+
+- **Context**: In Phase 5, we require exact session reproduction for quantitative backtesting, bug investigation, and auditability.
+- **Alternatives Considered**:
+  1. *Floating-point serialization*: Outputting prices and quantities as text strings (`"0.52"`) and computing SHA-256 over text logs. Drawback: Slow, string allocation overhead, and sensitive to locale/formatting variations.
+  2. *Binary FNV-1a 64-bit Canonical State Hasher*:
+     - Computes a running 64-bit FNV-1a digest over raw integer ticks and units: `(best_bid_ticks, best_ask_ticks, best_bid_qty, best_ask_qty)`.
+     - Canonical final book state hash: Serializes the active red-black tree bids (descending) and asks (ascending) directly from memory.
+- **Decision**: Implemented `StateHasher` and `Replayer`:
+  - Supports unthrottled execution (`max` speed: ~1M+ updates/sec), real-time paced replay (`1x`), and accelerated replay (`10x`).
+  - Dual-layer determinism verification:
+    1. *Running Output Stream Hash*: Detects any transient discrepancy, order swap, or rounding artifact during live streaming.
+    2. *Canonical Book State Hash*: Detects any divergence in final resting book depth or price levels.
+- **Verification & Results**:
+  - Replayed the 30-minute production recording across two independent passes.
+  - Running stream digest matched bit-for-bit: `0x7bf683492c841f21` in both passes across 12,992 updates.
+  - Golden test (`test_golden_replay.exe`) passes against repo fixture `data/golden_sample.jsonl`.
+  - Target `ninja replay-test` passes cleanly.

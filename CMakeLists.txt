@@ -38,6 +38,7 @@ add_library(polymarket_core STATIC
     core/src/recorder.cpp
     core/src/fault_injector.cpp
     core/src/direct_array_orderbook.cpp
+    core/src/replayer.cpp
 )
 
 target_include_directories(polymarket_core PUBLIC
@@ -109,6 +110,33 @@ add_executable(bench_comparison
 )
 target_link_libraries(bench_comparison PRIVATE polymarket_core)
 
+# Deterministic Replayer CLI Executable
+add_executable(replayer
+    core/src/replayer_main.cpp
+)
+target_link_libraries(replayer PRIVATE polymarket_core)
+
+# Determinism Verification Test Executable
+add_executable(test_determinism
+    core/tests/test_determinism.cpp
+)
+target_link_libraries(test_determinism PRIVATE polymarket_core)
+
+# Golden Sample Replay Test Executable
+add_executable(test_golden_replay
+    core/tests/test_golden_replay.cpp
+)
+target_link_libraries(test_golden_replay PRIVATE polymarket_core)
+
+# Custom target: replay-test (runs golden test & determinism test)
+add_custom_target(replay-test
+    COMMAND test_golden_replay ${CMAKE_CURRENT_SOURCE_DIR}/data/golden_sample.jsonl
+    COMMAND test_determinism ${CMAKE_CURRENT_SOURCE_DIR}/data/polymarket_recording.jsonl
+    DEPENDS test_golden_replay test_determinism
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    COMMENT "Running full deterministic replay test suite..."
+)
+
 # Enable CTest
 enable_testing()
 add_test(NAME OrderBookTests COMMAND test_orderbook)
@@ -116,3 +144,5 @@ add_test(NAME RecorderTests COMMAND test_recorder)
 add_test(NAME ReplaySampleInvariants COMMAND replay_invariants ${CMAKE_CURRENT_SOURCE_DIR}/data/sample.jsonl)
 add_test(NAME FaultRecoveryTests COMMAND test_fault_recovery)
 add_test(NAME EquivalenceTests COMMAND test_equivalence ${CMAKE_CURRENT_SOURCE_DIR}/data/sample.jsonl)
+add_test(NAME GoldenReplayTest COMMAND test_golden_replay ${CMAKE_CURRENT_SOURCE_DIR}/data/golden_sample.jsonl)
+add_test(NAME DeterminismTest COMMAND test_determinism ${CMAKE_CURRENT_SOURCE_DIR}/data/golden_sample.jsonl)
