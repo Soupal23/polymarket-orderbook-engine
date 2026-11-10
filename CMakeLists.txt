@@ -37,6 +37,7 @@ add_library(polymarket_core STATIC
     core/src/orderbook.cpp
     core/src/recorder.cpp
     core/src/fault_injector.cpp
+    core/src/direct_array_orderbook.cpp
 )
 
 target_include_directories(polymarket_core PUBLIC
@@ -96,9 +97,22 @@ add_executable(test_fault_recovery
 )
 target_link_libraries(test_fault_recovery PRIVATE polymarket_core)
 
+# Implementation Equivalence Test Executable
+add_executable(test_equivalence
+    core/tests/test_equivalence.cpp
+)
+target_link_libraries(test_equivalence PRIVATE polymarket_core)
+
+# Data-Structure Comparison Benchmark Harness
+add_executable(bench_comparison
+    core/tests/bench_comparison.cpp
+)
+target_link_libraries(bench_comparison PRIVATE polymarket_core)
+
 # Enable CTest
 enable_testing()
 add_test(NAME OrderBookTests COMMAND test_orderbook)
 add_test(NAME RecorderTests COMMAND test_recorder)
 add_test(NAME ReplaySampleInvariants COMMAND replay_invariants ${CMAKE_CURRENT_SOURCE_DIR}/data/sample.jsonl)
 add_test(NAME FaultRecoveryTests COMMAND test_fault_recovery)
+add_test(NAME EquivalenceTests COMMAND test_equivalence ${CMAKE_CURRENT_SOURCE_DIR}/data/sample.jsonl)

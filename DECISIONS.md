@@ -112,3 +112,20 @@ This document records key technical decisions, options evaluated, and the ration
 - **Fault Injection & Property Testing**:
   - Created `FaultInjector` using seeded deterministic PRNG (`std::mt19937_64`) simulating 4 network fault modes: drops, duplicates, reordering, and delay/timestamp regressions.
   - Verified across multiple seeds (`42`, `101`, `777`, `1337`, `99999`) that after fault-induced divergence, triggering snapshot recovery returns the book to bit-for-bit state equality (`test_book == clean_book`) with the clean reference stream.
+
+
+---
+
+## ADR-008: Bounded Price-Tick Indexed Array vs Red-Black Tree for Prediction Market CLOB
+
+- **Context**: In Phase 4, we evaluate data-structure optimizations against our baseline `std::map` (red-black tree) orderbook.
+- **Alternatives Considered**:
+  1. *`std::map<int64_t, PriceLevel>`*: Baseline. Simple, self-balancing, but incurs node pointer chasing and tree rebalancing latency spikes.
+  2. *`DirectArrayOrderBook` (Flat Price-Tick Array)*: Exploits the domain invariant that Polymarket binary shares trade exclusively in the bounded domain $[0.0000, 1.0000]$. With scale $10^4$, exactly 10,001 integer slots cover all valid ticks.
+  3. *`FastMatchingBook` (`std::list<Order>` with Stored Iterators)*: Replaces $O(K)$ linear deque scans with true $O(1)$ doubly linked list node erasure for order cancellation.
+- **Decision & Equivalence Proof**:
+  - Implemented `DirectArrayOrderBook` and verified 100% bit-for-bit equivalence against `std::map` across all 12,982 production updates (`test_equivalence.exe`).
+- **Empirical Findings**:
+  - `DirectArrayOrderBook` delivers **7.39M ops/sec** (vs 5.47M in `std::map`), a **35% throughput speedup**.
+  - Mean latency drops from **162 ns** to **108 ns** (33.5% lower).
+  - Most critically, tail latency at p99.9 collapses from **10,440 ns down to 1,720 ns** (6x lower tail latency), because flat array indexing eliminates heap node allocations and tree rebalancing rotations.
