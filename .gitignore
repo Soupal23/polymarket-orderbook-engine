@@ -1,0 +1,35 @@
+# Build artifacts
+build/
+bin/
+lib/
+*.exe
+*.o
+*.obj
+*.a
+*.ninja
+.ninja_*
+CMakeCache.txt
+CMakeFiles/
+
+# Node & Frontend dependencies
+node_modules/
+dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Recorded feeds (ignore large logs, keep small sample)
+/data/*.log
+/data/*.bin
+/data/*.jsonl
+!/data/sample.jsonl
+
+# Environment & Local secrets
+.env
+.env.local
+
+# IDEs & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
