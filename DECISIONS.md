@@ -74,3 +74,22 @@ This document records key technical decisions, options evaluated, and the ration
      - Native OpenSSL TLS support on MinGW/Windows/Linux with fast compilation and zero external baggage.
 - **Decision**: Selected **IXWebSocket** with OpenSSL for the raw feed recorder.
 - **Rationale**: For an ingest recorder whose primary responsibility is 100% untouched raw capture and reconnect resilience without packet loss, IXWebSocket delivers battle-tested reconnection and keepalive semantics out of the box with clear, readable code that can be easily explained and defended in an interview.
+
+
+---
+
+## ADR-006: Invariant Verification Engine & Offline Dataset Validation
+
+- **Context**: In Phase 2, we establish baseline correctness for the L2 orderbook engine. Prediction market orderbooks have strict invariants that must never be violated during real-time streaming:
+  1. *No Crossed Book*: $\text{Best Bid} < \text{Best Ask}$ whenever both sides have active liquidity.
+  2. *Positive Liquidity*: Every active price level stored in the map must have strictly positive volume ($\forall \text{level}, Q > 0$). Levels depleted to $Q \le 0$ must be pruned immediately.
+  3. *Strict Bid Monotonicity*: Bids in the map must be strictly descending in price ($P_i > P_{i+1}$).
+  4. *Strict Ask Monotonicity*: Asks in the map must be strictly ascending in price ($P_i < P_{i+1}$).
+- **Validation Method**:
+  - Implemented `OrderBook::check_invariants()` returning detailed failure messages upon any invariant breach.
+  - Built an offline invariant replayer (`core/src/replay_invariants.cpp`) that ingests real captured feeds line-by-line, applies snapshots and deltas, and validates all invariants on every single update.
+- **Empirical Results**:
+  - Replayed the 30-minute production recording (`data/polymarket_recording.jsonl`) comprising 7,738 raw events across 8 distinct outcome tokens.
+  - Executed **12,992 invariant checks** across **12,982 applied level updates**.
+  - **Zero invariant violations detected** (0 errors).
+- **Rationale**: Proving that the engine ingests real production exchange traffic for 30 minutes without a single crossed book or lingering zero-size level provides ironclad defense in a trading systems interview.

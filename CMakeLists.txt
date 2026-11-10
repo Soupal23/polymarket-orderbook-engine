@@ -12,10 +12,11 @@ else()
     add_compile_options(-Wall -Wextra -Wpedantic -O2)
 endif()
 
-# Locate OpenSSL and ZLIB
+# Locate OpenSSL, ZLIB, and nlohmann_json
 set(OPENSSL_ROOT_DIR "C:/msys64/mingw64" CACHE PATH "OpenSSL root path" FORCE)
 find_package(OpenSSL REQUIRED)
 find_package(ZLIB REQUIRED)
+find_package(nlohmann_json REQUIRED)
 
 # Fetch and configure IXWebSocket
 include(FetchContent)
@@ -46,6 +47,7 @@ target_link_libraries(polymarket_core PUBLIC
     OpenSSL::SSL
     OpenSSL::Crypto
     ZLIB::ZLIB
+    nlohmann_json::nlohmann_json
 )
 
 if (WIN32)
@@ -75,6 +77,12 @@ add_executable(count_messages
     core/src/count_messages.cpp
 )
 
+# Invariant Replayer Executable
+add_executable(replay_invariants
+    core/src/replay_invariants.cpp
+)
+target_link_libraries(replay_invariants PRIVATE polymarket_core)
+
 # Recorder Test Executable
 add_executable(test_recorder
     core/tests/test_recorder.cpp
@@ -85,3 +93,4 @@ target_link_libraries(test_recorder PRIVATE polymarket_core)
 enable_testing()
 add_test(NAME OrderBookTests COMMAND test_orderbook)
 add_test(NAME RecorderTests COMMAND test_recorder)
+add_test(NAME ReplaySampleInvariants COMMAND replay_invariants ${CMAKE_CURRENT_SOURCE_DIR}/data/sample.jsonl)

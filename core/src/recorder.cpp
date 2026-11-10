@@ -84,8 +84,14 @@ void RawRecorder::write_entry(uint64_t recv_time_ns, const std::string& raw_payl
     std::lock_guard<std::mutex> lock(file_mutex_);
     if (!out_file_.is_open()) return;
 
+    // Strip any trailing whitespace/newlines from the WebSocket message
+    std::string_view payload(raw_payload);
+    while (!payload.empty() && (payload.back() == '\r' || payload.back() == '\n' || payload.back() == ' ')) {
+        payload.remove_suffix(1);
+    }
+
     // Fast JSONL line output: {"recv_time_ns":<ns>,"raw":<raw_payload>}
-    out_file_ << "{\"recv_time_ns\":" << recv_time_ns << ",\"raw\":" << raw_payload << "}\n";
+    out_file_ << "{\"recv_time_ns\":" << recv_time_ns << ",\"raw\":" << payload << "}\n";
 
     // Periodic flush to prevent data loss on unexpected termination
     if (message_count_ % 50 == 0) {

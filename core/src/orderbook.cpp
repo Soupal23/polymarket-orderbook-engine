@@ -1,5 +1,6 @@
 #include "orderbook.hpp"
 #include <algorithm>
+#include <climits>
 
 namespace polymarket {
 
@@ -60,6 +61,61 @@ void OrderBook::update_level(Side side, int64_t price_ticks, int64_t size_units)
     }
 }
 
+InvariantStatus OrderBook::check_invariants() const {
+    // Invariant 1: No crossed book (best_bid < best_ask)
+    if (!bids_.empty() && !asks_.empty()) {
+        int64_t bb = bids_.begin()->first;
+        int64_t ba = asks_.begin()->first;
+        if (bb >= ba) {
+            return {
+                false,
+                "Crossed book: best_bid (" + std::to_string(ticks_to_price(bb)) +
+                ") >= best_ask (" + std::to_string(ticks_to_price(ba)) + ")"
+            };
+        }
+    }
+
+    // Invariant 2 & 3: Bids positive volume and strict descending order
+    int64_t prev_bid = LLONG_MAX;
+    for (const auto& [price, level] : bids_) {
+        if (level.total_quantity_units <= 0) {
+            return {
+                false,
+                "Non-positive quantity in bids at price " + std::to_string(ticks_to_price(price)) +
+                ": " + std::to_string(units_to_qty(level.total_quantity_units))
+            };
+        }
+        if (price >= prev_bid) {
+            return {
+                false,
+                "Bids not strictly descending at price " + std::to_string(ticks_to_price(price))
+            };
+        }
+        prev_bid = price;
+    }
+
+    // Invariant 2 & 4: Asks positive volume and strict ascending order
+    int64_t prev_ask = -1;
+    for (const auto& [price, level] : asks_) {
+        if (level.total_quantity_units <= 0) {
+            return {
+                false,
+                "Non-positive quantity in asks at price " + std::to_string(ticks_to_price(price)) +
+                ": " + std::to_string(units_to_qty(level.total_quantity_units))
+            };
+        }
+        if (price <= prev_ask) {
+            return {
+                false,
+                "Asks not strictly ascending at price " + std::to_string(ticks_to_price(price))
+            };
+        }
+        prev_ask = price;
+    }
+
+    return {true, ""};
+}
+
 std::vector<Trade> OrderBook::add_limit_order(Order order) {
     std::vector<Trade> trades;
 
@@ -75,10 +131,9 @@ std::vector<Trade> OrderBook::add_limit_order(Order order) {
             auto& level = it->second;
 
             if (level.orders.empty()) {
-                // Aggregated liquidity from L2 feed
                 int64_t match_qty = std::min(order.remaining_qty_units, level.total_quantity_units);
                 trades.push_back(Trade{
-                    0, // Maker ID unknown in aggregate L2
+                    0,
                     order.order_id,
                     Side::BUY,
                     match_price,
@@ -93,7 +148,6 @@ std::vector<Trade> OrderBook::add_limit_order(Order order) {
                     asks_.erase(it);
                 }
             } else {
-                // FIFO queue of resting maker orders
                 while (order.remaining_qty_units > 0 && !level.orders.empty()) {
                     auto& maker = level.orders.front();
                     int64_t match_qty = std::min(order.remaining_qty_units, maker.remaining_qty_units);
@@ -309,6 +363,29 @@ std::optional<double> OrderBook::micro_price() const {
     return (*bb * w_bid) + (*ba * w_ask);
 }
 
+std::optional<double> OrderBook::book_imbalance(size_t depth) const {
+    if (bids_.empty() && asks_.empty()) {
+        return std::nullopt;
+    }
+
+    int64_t bid_vol = 0;
+    size_t count = 0;
+    for (auto it = bids_.begin(); it != bids_.end() && count < depth; ++it, ++count) {
+        bid_vol += it->second.total_quantity_units;
+    }
+
+    int64_t ask_vol = 0;
+    count = 0;
+    for (auto it = asks_.begin(); it != asks_.end() && count < depth; ++it, ++count) {
+        ask_vol += it->second.total_quantity_units;
+    }
+
+    int64_t total = bid_vol + ask_vol;
+    if (total == 0) return 0.0;
+
+    return static_cast<double>(bid_vol - ask_vol) / static_cast<double>(total);
+}
+
 bool OrderBook::is_crossed() const {
     auto bb = best_bid_ticks();
     auto ba = best_ask_ticks();
@@ -330,6 +407,10 @@ int64_t OrderBook::total_ask_quantity_units() const {
         sum += level.total_quantity_units;
     }
     return sum;
+}
+
+DepthSnapshot OrderBook::top_n_depth(size_t depth) const {
+    return DepthSnapshot{ get_bids_l2(depth), get_asks_l2(depth) };
 }
 
 std::vector<std::pair<double, double>> OrderBook::get_bids_l2(size_t depth) const {
