@@ -7,6 +7,7 @@
 #include <atomic>
 #include <chrono>
 #include <memory>
+#include <functional>
 #include <ixwebsocket/IXWebSocket.h>
 
 namespace polymarket {
@@ -31,6 +32,11 @@ public:
     // Stop recording and flush log file
     void stop();
 
+    // Set callback for in-memory live processing
+    void set_message_callback(std::function<void(const std::string& raw_payload, uint64_t recv_time_ns)> cb) {
+        on_message_ = std::move(cb);
+    }
+
     // Status queries
     bool is_connected() const { return connected_.load(); }
     uint64_t message_count() const { return message_count_.load(); }
@@ -47,6 +53,7 @@ private:
     ix::WebSocket web_socket_;
     std::ofstream out_file_;
     std::mutex file_mutex_;
+    std::function<void(const std::string&, uint64_t)> on_message_;
 
     std::atomic<bool> connected_{false};
     std::atomic<bool> running_{false};

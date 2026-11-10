@@ -151,3 +151,43 @@ This document records key technical decisions, options evaluated, and the ration
   - Running stream digest matched bit-for-bit: `0x7bf683492c841f21` in both passes across 12,992 updates.
   - Golden test (`test_golden_replay.exe`) passes against repo fixture `data/golden_sample.jsonl`.
   - Target `ninja replay-test` passes cleanly.
+
+
+---
+
+## ADR-010: Inter-Process Communication (IPC) Protocol: Localhost TCP Streaming
+
+- **Context**: In Phase 6, the C++17 core engine must stream real-time orderbook updates, BBO state, trade executions, and heartbeats to the Node.js gateway with minimum latency and cross-platform compatibility across Windows (MinGW/MSVC) and Linux.
+- **Alternatives Considered**:
+  1. *Shared Memory (POSIX shm / Windows memory mapped file)*: Lowest latency (~sub-microsecond), but requires complex ring-buffer synchronization, circular buffer overflow handlers, and platform-specific IPC bindings between C++ and Node.js.
+  2. *Unix Domain Sockets (`AF_UNIX`)*: Fast, but historically lacked consistent support across older Windows builds and requires separate codepaths.
+  3. *Local TCP Streaming with `TCP_NODELAY` (`127.0.0.1:9001`)*:
+     - Standard TCP sockets (`AF_INET`, `SOCK_STREAM`) with `TCP_NODELAY` (disabling Nagle's algorithm).
+     - Streaming newline-delimited JSON (NDJSON) framing.
+- **Decision**: Implemented `TcpPublisher` using WinSock/BSD sockets on `127.0.0.1:9001` with `TCP_NODELAY`.
+- **Rationale**:
+  - Localhost TCP delivers sub-millisecond roundtrip times (< 0.2ms) without requiring custom native Node addons (`node-gyp`).
+  - Newline framing is trivially parsed in Node streams without complex length-prefix chunk reassembly.
+  - Allows Gateway and C++ engine to run on distinct processes, containers, or machines without code modification.
+
+---
+
+## ADR-011: Gateway Rate-Limiting & Coalesced WebSocket Broadcasting
+
+- **Context**: The C++ engine can process thousands of market data updates per second. Directly emitting every tick over Socket.IO to browser clients causes DOM thrashing, high React re-render CPU usage, and UI stuttering.
+- **Decision**: Implemented a Coalescing Broadcaster in `gateway/src/broadcaster.js`:
+  - Enforces a 50ms throttling window per outcome token (`asset_id`) (max 20 UI updates/second).
+  - Updates received during the throttle interval overwrite the pending state for that token in memory (coalescing).
+  - High-priority non-fungible events (trade executions, engine state changes, desync alarms) bypass throttling and are broadcast immediately.
+- **Rationale**: Preserves 100% accurate current Top-of-Book and Depth state in the UI while ensuring silky-smooth 60fps rendering in React and Recharts.
+
+---
+
+## ADR-012: Dual-Mode Persistence & Storage Strategy (Redis/Mongo with In-Memory Ring Buffer Fallback)
+
+- **Context**: The production stack specifies Redis for transient BBO caching and BullMQ queuing, plus MongoDB for time-series snapshot and trade archiving with TTL indexes. However, developers or interviewers testing the repository may not have Redis or MongoDB running locally.
+- **Decision**: Implemented resilient dual-mode data stores:
+  - `StateStore`: Attempts Redis connection (`connectTimeout: 800ms`). If unavailable, transparently activates an in-memory `Map` with identical query semantics.
+  - `PersistenceWorker`: Connects to MongoDB and sets TTL index (`expireAfterSeconds: 86400`). If offline, falls back to in-memory capped ring buffers (retaining the last 1,000 snapshots and trades).
+  - BullMQ Queue: Configured if Redis is online; falls back to an asynchronous in-process queue if Redis is absent.
+- **Rationale**: Eliminates fragile setup friction. The system runs fully production-ready when Redis and MongoDB are available, yet works seamlessly and out of the box for quick evaluation and CI/CD pipelines.

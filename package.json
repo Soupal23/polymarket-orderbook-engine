@@ -1,0 +1,19 @@
+{
+  "name": "orderbook-engine-for-prediction-markets",
+  "version": "1.0.0",
+  "description": "High-Performance Limit Order Book Engine for Polymarket Prediction Markets",
+  "scripts": {
+    "build:core": "ninja -C build",
+    "build:dashboard": "npm run build --prefix dashboard",
+    "build": "npm run build:core && npm run build:dashboard",
+    "test:core": "ctest --test-dir build --output-on-failure",
+    "test:gateway": "node gateway/tests/gateway.test.js",
+    "test:e2e": "node gateway/tests/test_full_stack.js",
+    "test": "npm run test:core && npm run test:gateway && npm run test:e2e",
+    "start:engine": ".\\build\\live_engine.exe --replay data/polymarket_recording.jsonl --speed 1.0",
+    "start:engine:live": ".\\build\\live_engine.exe --live",
+    "start:gateway": "node gateway/server.js",
+    "start:dashboard": "npm run dev --prefix dashboard",
+    "start": "powershell -ExecutionPolicy Bypass -File .\\start_all.ps1"
+  }
+}

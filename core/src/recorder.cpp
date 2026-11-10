@@ -8,15 +8,17 @@ namespace polymarket {
 
 RawRecorder::RawRecorder(RecorderConfig config)
     : config_(std::move(config)) {
-    // Ensure output directory exists
-    std::filesystem::path p(config_.output_path);
-    if (p.has_parent_path()) {
-        std::filesystem::create_directories(p.parent_path());
-    }
+    // Ensure output directory exists if output_path is provided
+    if (!config_.output_path.empty()) {
+        std::filesystem::path p(config_.output_path);
+        if (p.has_parent_path()) {
+            std::filesystem::create_directories(p.parent_path());
+        }
 
-    out_file_.open(config_.output_path, std::ios::out | std::ios::app);
-    if (!out_file_.is_open()) {
-        throw std::runtime_error("Failed to open output recording file: " + config_.output_path);
+        out_file_.open(config_.output_path, std::ios::out | std::ios::app);
+        if (!out_file_.is_open()) {
+            throw std::runtime_error("Failed to open output recording file: " + config_.output_path);
+        }
     }
 
     // Configure IXWebSocket
@@ -72,7 +74,14 @@ void RawRecorder::on_websocket_event(const ix::WebSocketMessagePtr& msg) {
             ).count()
         );
 
-        write_entry(recv_ns, msg->str);
+        if (out_file_.is_open()) {
+            write_entry(recv_ns, msg->str);
+        }
+
+        if (on_message_) {
+            on_message_(msg->str, recv_ns);
+        }
+
         uint64_t count = message_count_.fetch_add(1) + 1;
         if (count % 100 == 0) {
             std::cout << "[RECORDER] Captured " << count << " messages..." << std::endl;

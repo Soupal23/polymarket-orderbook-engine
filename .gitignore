@@ -23,6 +23,7 @@ yarn-error.log*
 /data/*.bin
 /data/*.jsonl
 !/data/sample.jsonl
+!/data/golden_sample.jsonl
 
 # Environment & Local secrets
 .env

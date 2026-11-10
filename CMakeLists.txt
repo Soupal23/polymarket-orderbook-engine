@@ -39,6 +39,7 @@ add_library(polymarket_core STATIC
     core/src/fault_injector.cpp
     core/src/direct_array_orderbook.cpp
     core/src/replayer.cpp
+    core/src/tcp_publisher.cpp
 )
 
 target_include_directories(polymarket_core PUBLIC
@@ -128,6 +129,18 @@ add_executable(test_golden_replay
 )
 target_link_libraries(test_golden_replay PRIVATE polymarket_core)
 
+# TCP Publisher Test Executable
+add_executable(test_tcp_publisher
+    core/tests/test_tcp_publisher.cpp
+)
+target_link_libraries(test_tcp_publisher PRIVATE polymarket_core)
+
+# Live Engine Server Executable
+add_executable(live_engine
+    core/src/live_engine.cpp
+)
+target_link_libraries(live_engine PRIVATE polymarket_core)
+
 # Custom target: replay-test (runs golden test & determinism test)
 add_custom_target(replay-test
     COMMAND test_golden_replay ${CMAKE_CURRENT_SOURCE_DIR}/data/golden_sample.jsonl
@@ -146,3 +159,4 @@ add_test(NAME FaultRecoveryTests COMMAND test_fault_recovery)
 add_test(NAME EquivalenceTests COMMAND test_equivalence ${CMAKE_CURRENT_SOURCE_DIR}/data/sample.jsonl)
 add_test(NAME GoldenReplayTest COMMAND test_golden_replay ${CMAKE_CURRENT_SOURCE_DIR}/data/golden_sample.jsonl)
 add_test(NAME DeterminismTest COMMAND test_determinism ${CMAKE_CURRENT_SOURCE_DIR}/data/golden_sample.jsonl)
+add_test(NAME TcpPublisherTest COMMAND test_tcp_publisher)
