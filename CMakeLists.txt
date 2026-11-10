@@ -36,6 +36,7 @@ FetchContent_MakeAvailable(ixwebsocket)
 add_library(polymarket_core STATIC
     core/src/orderbook.cpp
     core/src/recorder.cpp
+    core/src/fault_injector.cpp
 )
 
 target_include_directories(polymarket_core PUBLIC
@@ -54,7 +55,7 @@ if (WIN32)
     target_link_libraries(polymarket_core PUBLIC ws2_32 crypt32 shlwapi)
 endif()
 
-# Orderbook Test Executable
+# Orderbook Unit Tests
 add_executable(test_orderbook
     core/tests/test_orderbook.cpp
 )
@@ -89,8 +90,15 @@ add_executable(test_recorder
 )
 target_link_libraries(test_recorder PRIVATE polymarket_core)
 
+# Fault Recovery & Self-Healing Property Test Executable
+add_executable(test_fault_recovery
+    core/tests/test_fault_recovery.cpp
+)
+target_link_libraries(test_fault_recovery PRIVATE polymarket_core)
+
 # Enable CTest
 enable_testing()
 add_test(NAME OrderBookTests COMMAND test_orderbook)
 add_test(NAME RecorderTests COMMAND test_recorder)
 add_test(NAME ReplaySampleInvariants COMMAND replay_invariants ${CMAKE_CURRENT_SOURCE_DIR}/data/sample.jsonl)
+add_test(NAME FaultRecoveryTests COMMAND test_fault_recovery)

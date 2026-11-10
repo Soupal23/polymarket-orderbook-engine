@@ -11,6 +11,22 @@
 
 namespace polymarket {
 
+// Book Lifecycle States for Self-Healing
+enum class BookState : uint8_t {
+    LIVE = 0,       // Synchronized, actively processing market feed
+    STALE = 1,      // Desynchronization or invariant breach detected
+    REBUILDING = 2  // Awaiting fresh snapshot to restore clean state
+};
+
+inline const char* to_string(BookState state) {
+    switch (state) {
+        case BookState::LIVE: return "LIVE";
+        case BookState::STALE: return "STALE";
+        case BookState::REBUILDING: return "REBUILDING";
+        default: return "UNKNOWN";
+    }
+}
+
 // Invariant status report
 struct InvariantStatus {
     bool is_valid{true};
@@ -27,6 +43,18 @@ class OrderBook {
 public:
     explicit OrderBook(std::string asset_id = "", std::string market_id = "");
 
+    // Lifecycle State
+    BookState get_state() const { return state_; }
+    bool is_live() const { return state_ == BookState::LIVE; }
+    bool is_stale() const { return state_ == BookState::STALE; }
+    bool is_rebuilding() const { return state_ == BookState::REBUILDING; }
+
+    void mark_stale(const std::string& reason);
+    void start_rebuild();
+    void mark_live();
+
+    const std::string& get_stale_reason() const { return stale_reason_; }
+
     // Metadata
     const std::string& get_asset_id() const { return asset_id_; }
     const std::string& get_market_id() const { return market_id_; }
@@ -38,7 +66,7 @@ public:
         last_timestamp_ms_ = timestamp_ms;
     }
 
-    // L2 Feed Operations (Directly mirrors Polymarket CLOB book snapshot & price_change)
+    // L2 Feed Operations
     void apply_snapshot(
         const std::vector<std::pair<int64_t, int64_t>>& bids_ticks_qty,
         const std::vector<std::pair<int64_t, int64_t>>& asks_ticks_qty,
@@ -46,22 +74,24 @@ public:
         uint64_t timestamp_ms = 0
     );
 
-    // Incremental level update (Mirrors Polymarket 'price_change' event)
-    // If size_units == 0, the level is deleted from the book.
-    void update_level(Side side, int64_t price_ticks, int64_t size_units);
+    // Incremental level update with gap/desync detection
+    // Returns true if applied cleanly; false if desync detected and book marked STALE.
+    bool update_level(Side side, int64_t price_ticks, int64_t size_units, uint64_t timestamp_ms = 0);
 
-    // Alias for update_level for roadmap clarity
-    void apply_delta(Side side, int64_t price_ticks, int64_t size_units) {
-        update_level(side, price_ticks, size_units);
+    bool apply_delta(Side side, int64_t price_ticks, int64_t size_units, uint64_t timestamp_ms = 0) {
+        return update_level(side, price_ticks, size_units, timestamp_ms);
     }
 
     // Invariant Verification
-    // Checks:
-    // 1. No crossed book (best_bid < best_ask)
-    // 2. No non-positive or zero-size levels stored
-    // 3. Strict bid descending monotonicity
-    // 4. Strict ask ascending monotonicity
     InvariantStatus check_invariants() const;
+
+    // Self-Healing Recovery
+    void recover_with_snapshot(
+        const std::vector<std::pair<int64_t, int64_t>>& bids_ticks_qty,
+        const std::vector<std::pair<int64_t, int64_t>>& asks_ticks_qty,
+        const std::string& hash = "",
+        uint64_t timestamp_ms = 0
+    );
 
     // Order-Level Operations & Matching Engine
     std::vector<Trade> add_limit_order(Order order);
@@ -113,11 +143,18 @@ public:
         asks_[price_ticks].total_quantity_units = size_units;
     }
 
+    // Equality operator for property-style determinism and recovery tests
+    bool operator==(const OrderBook& other) const;
+    bool operator!=(const OrderBook& other) const { return !(*this == other); }
+
 private:
     std::string asset_id_;
     std::string market_id_;
     std::string last_hash_;
     uint64_t last_timestamp_ms_{0};
+
+    BookState state_{BookState::STALE}; // Books start STALE until initial snapshot
+    std::string stale_reason_{"Awaiting initial snapshot"};
 
     // Bids sorted descending: highest buy price at begin()
     std::map<int64_t, PriceLevel, std::greater<int64_t>> bids_;

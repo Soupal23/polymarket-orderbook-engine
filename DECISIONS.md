@@ -93,3 +93,22 @@ This document records key technical decisions, options evaluated, and the ration
   - Executed **12,992 invariant checks** across **12,982 applied level updates**.
   - **Zero invariant violations detected** (0 errors).
 - **Rationale**: Proving that the engine ingests real production exchange traffic for 30 minutes without a single crossed book or lingering zero-size level provides ironclad defense in a trading systems interview.
+
+
+---
+
+## ADR-007: Desync Detection Signals, Self-Healing State Machine & Fault Injection
+
+- **Context**: In Phase 3, we build the engine's resiliency layer to handle real-world network packet loss, out-of-order delivery, and desyncs. Because Polymarket CLOB market data lacks monotonic integer sequence numbers, traditional sequence-gap detection is impossible.
+- **Signals Used for Desync Detection**:
+  1. *Timestamp Regression*: Ingesting an update with `timestamp_ms < last_timestamp_ms_` signals a delayed or out-of-order delivery.
+  2. *Crossed Book Invariant Breach*: An update resulting in $\text{best\_bid} \ge \text{best\_ask}$ signals dropped or misordered deltas.
+  3. *Non-Positive Liquidity*: Any level corrupted to $Q \le 0$ violates structural invariants.
+- **State Machine Architecture**:
+  - `LIVE`: Book is synchronized and actively serving BBO and trade queries.
+  - `STALE`: A desync or invariant violation occurred. Queries return stale flags; trading algorithms halt.
+  - `REBUILDING`: A fresh snapshot request has been initiated (via REST or resubscription).
+  - `LIVE` (Restored): Once the fresh snapshot is applied and invariants re-verified, the book resumes live operation.
+- **Fault Injection & Property Testing**:
+  - Created `FaultInjector` using seeded deterministic PRNG (`std::mt19937_64`) simulating 4 network fault modes: drops, duplicates, reordering, and delay/timestamp regressions.
+  - Verified across multiple seeds (`42`, `101`, `777`, `1337`, `99999`) that after fault-induced divergence, triggering snapshot recovery returns the book to bit-for-bit state equality (`test_book == clean_book`) with the clean reference stream.

@@ -6,7 +6,9 @@ namespace polymarket {
 
 OrderBook::OrderBook(std::string asset_id, std::string market_id)
     : asset_id_(std::move(asset_id)),
-      market_id_(std::move(market_id)) {}
+      market_id_(std::move(market_id)),
+      state_(BookState::STALE),
+      stale_reason_("Awaiting initial snapshot") {}
 
 void OrderBook::clear() {
     bids_.clear();
@@ -14,6 +16,21 @@ void OrderBook::clear() {
     order_locations_.clear();
     last_hash_.clear();
     last_timestamp_ms_ = 0;
+}
+
+void OrderBook::mark_stale(const std::string& reason) {
+    state_ = BookState::STALE;
+    stale_reason_ = reason;
+}
+
+void OrderBook::start_rebuild() {
+    state_ = BookState::REBUILDING;
+    stale_reason_ = "Rebuilding from fresh snapshot";
+}
+
+void OrderBook::mark_live() {
+    state_ = BookState::LIVE;
+    stale_reason_.clear();
 }
 
 void OrderBook::apply_snapshot(
@@ -39,9 +56,37 @@ void OrderBook::apply_snapshot(
             asks_[price].price_ticks = price;
         }
     }
+
+    auto inv = check_invariants();
+    if (inv.is_valid) {
+        mark_live();
+    } else {
+        mark_stale("Invalid snapshot: " + inv.error_detail);
+    }
 }
 
-void OrderBook::update_level(Side side, int64_t price_ticks, int64_t size_units) {
+void OrderBook::recover_with_snapshot(
+    const std::vector<std::pair<int64_t, int64_t>>& bids_ticks_qty,
+    const std::vector<std::pair<int64_t, int64_t>>& asks_ticks_qty,
+    const std::string& hash,
+    uint64_t timestamp_ms
+) {
+    start_rebuild();
+    apply_snapshot(bids_ticks_qty, asks_ticks_qty, hash, timestamp_ms);
+}
+
+bool OrderBook::update_level(Side side, int64_t price_ticks, int64_t size_units, uint64_t timestamp_ms) {
+    // Desync Check 1: Timestamp Regression (Out-of-order or delayed packet)
+    if (timestamp_ms > 0 && last_timestamp_ms_ > 0 && timestamp_ms < last_timestamp_ms_) {
+        mark_stale("Timestamp regression detected: packet ts " + std::to_string(timestamp_ms) +
+                   " < current book ts " + std::to_string(last_timestamp_ms_));
+        return false;
+    }
+
+    if (timestamp_ms > last_timestamp_ms_) {
+        last_timestamp_ms_ = timestamp_ms;
+    }
+
     if (side == Side::BUY) {
         if (size_units <= 0) {
             bids_.erase(price_ticks);
@@ -59,6 +104,18 @@ void OrderBook::update_level(Side side, int64_t price_ticks, int64_t size_units)
             level.set_aggregate_quantity(size_units);
         }
     }
+
+    // Desync Check 2: Crossed Book Invariant Check
+    if (is_crossed()) {
+        auto bb = best_bid();
+        auto ba = best_ask();
+        mark_stale("Crossed book detected after update: best_bid (" + 
+                   (bb ? std::to_string(*bb) : "N/A") + ") >= best_ask (" + 
+                   (ba ? std::to_string(*ba) : "N/A") + ")");
+        return false;
+    }
+
+    return true;
 }
 
 InvariantStatus OrderBook::check_invariants() const {
@@ -124,7 +181,6 @@ std::vector<Trade> OrderBook::add_limit_order(Order order) {
     }
 
     if (order.side == Side::BUY) {
-        // Cross against resting asks while order.price >= best_ask
         while (order.remaining_qty_units > 0 && !asks_.empty() && order.price_ticks >= asks_.begin()->first) {
             auto it = asks_.begin();
             int64_t match_price = it->first;
@@ -177,7 +233,6 @@ std::vector<Trade> OrderBook::add_limit_order(Order order) {
             }
         }
 
-        // Rest remaining unfilled quantity in bids
         if (order.remaining_qty_units > 0) {
             auto& level = bids_[order.price_ticks];
             level.price_ticks = order.price_ticks;
@@ -185,7 +240,6 @@ std::vector<Trade> OrderBook::add_limit_order(Order order) {
             order_locations_[order.order_id] = {Side::BUY, order.price_ticks};
         }
     } else {
-        // SELL order: Cross against resting bids while order.price <= best_bid
         while (order.remaining_qty_units > 0 && !bids_.empty() && order.price_ticks <= bids_.begin()->first) {
             auto it = bids_.begin();
             int64_t match_price = it->first;
@@ -238,7 +292,6 @@ std::vector<Trade> OrderBook::add_limit_order(Order order) {
             }
         }
 
-        // Rest remaining unfilled quantity in asks
         if (order.remaining_qty_units > 0) {
             auto& level = asks_[order.price_ticks];
             level.price_ticks = order.price_ticks;
@@ -357,7 +410,6 @@ std::optional<double> OrderBook::micro_price() const {
         return mid_price();
     }
 
-    // Micro-price weights best bid by ask size and best ask by bid size
     double w_bid = static_cast<double>(*qa) / static_cast<double>(total_qty);
     double w_ask = static_cast<double>(*qb) / static_cast<double>(total_qty);
     return (*bb * w_bid) + (*ba * w_ask);
@@ -433,6 +485,34 @@ std::vector<std::pair<double, double>> OrderBook::get_asks_l2(size_t depth) cons
         result.emplace_back(ticks_to_price(it->first), units_to_qty(it->second.total_quantity_units));
     }
     return result;
+}
+
+bool OrderBook::operator==(const OrderBook& other) const {
+    if (bids_.size() != other.bids_.size() || asks_.size() != other.asks_.size()) {
+        return false;
+    }
+
+    auto it1 = bids_.begin();
+    auto it2 = other.bids_.begin();
+    while (it1 != bids_.end()) {
+        if (it1->first != it2->first || it1->second.total_quantity_units != it2->second.total_quantity_units) {
+            return false;
+        }
+        ++it1;
+        ++it2;
+    }
+
+    auto it_a1 = asks_.begin();
+    auto it_a2 = other.asks_.begin();
+    while (it_a1 != asks_.end()) {
+        if (it_a1->first != it_a2->first || it_a1->second.total_quantity_units != it_a2->second.total_quantity_units) {
+            return false;
+        }
+        ++it_a1;
+        ++it_a2;
+    }
+
+    return true;
 }
 
 } // namespace polymarket
