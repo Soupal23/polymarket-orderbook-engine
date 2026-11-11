@@ -24,32 +24,37 @@ export class PersistenceWorker {
   async init(redisOnline = false) {
     this.isRedisOnline = redisOnline;
 
-    // 1. Attempt MongoDB connection
-    try {
-      this.mongoClient = new MongoClient(this.mongoUri, {
-        serverSelectionTimeoutMS: 1000,
-        connectTimeoutMS: 1000,
-      });
-      await this.mongoClient.connect();
-      this.db = this.mongoClient.db(this.dbName);
-      this.mongoOnline = true;
-      console.log(`[PersistenceWorker] Connected to MongoDB at ${this.mongoUri}/${this.dbName}`);
-
-      // Ensure TTL indexes (expire after 24h = 86400s)
-      const snapshotsCol = this.db.collection('snapshots');
-      await snapshotsCol.createIndex({ created_at: 1 }, { expireAfterSeconds: 86400 });
-      await snapshotsCol.createIndex({ asset_id: 1, created_at: -1 });
-
-      const tradesCol = this.db.collection('trades');
-      await tradesCol.createIndex({ created_at: 1 }, { expireAfterSeconds: 86400 });
-      await tradesCol.createIndex({ asset_id: 1, timestamp_ms: -1 });
-    } catch {
+    if (process.env.NODE_ENV === 'production' && !process.env.MONGO_URI) {
       this.mongoOnline = false;
-      if (this.mongoClient) {
-        try { await this.mongoClient.close(); } catch {}
-        this.mongoClient = null;
+      console.log(`[PersistenceWorker] No MONGO_URI configured in production; using fast in-memory ring-buffer storage.`);
+    } else {
+      // 1. Attempt MongoDB connection
+      try {
+        this.mongoClient = new MongoClient(this.mongoUri, {
+          serverSelectionTimeoutMS: 1000,
+          connectTimeoutMS: 1000,
+        });
+        await this.mongoClient.connect();
+        this.db = this.mongoClient.db(this.dbName);
+        this.mongoOnline = true;
+        console.log(`[PersistenceWorker] Connected to MongoDB at ${this.mongoUri}/${this.dbName}`);
+
+        // Ensure TTL indexes (expire after 24h = 86400s)
+        const snapshotsCol = this.db.collection('snapshots');
+        await snapshotsCol.createIndex({ created_at: 1 }, { expireAfterSeconds: 86400 });
+        await snapshotsCol.createIndex({ asset_id: 1, created_at: -1 });
+
+        const tradesCol = this.db.collection('trades');
+        await tradesCol.createIndex({ created_at: 1 }, { expireAfterSeconds: 86400 });
+        await tradesCol.createIndex({ asset_id: 1, timestamp_ms: -1 });
+      } catch {
+        this.mongoOnline = false;
+        if (this.mongoClient) {
+          try { await this.mongoClient.close(); } catch {}
+          this.mongoClient = null;
+        }
+        console.log(`[PersistenceWorker] MongoDB offline (${this.mongoUri}); using fast in-memory ring-buffer storage.`);
       }
-      console.log(`[PersistenceWorker] MongoDB offline (${this.mongoUri}); using fast in-memory ring-buffer storage.`);
     }
 
     // 2. Setup BullMQ Queue if Redis is available

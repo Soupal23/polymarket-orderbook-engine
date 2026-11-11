@@ -12,10 +12,13 @@ else()
     add_compile_options(-Wall -Wextra -Wpedantic -O2)
 endif()
 
-# Locate OpenSSL, ZLIB, and nlohmann_json
-set(OPENSSL_ROOT_DIR "C:/msys64/mingw64" CACHE PATH "OpenSSL root path" FORCE)
+# Locate OpenSSL, ZLIB, Threads, and nlohmann_json
+if (WIN32 AND EXISTS "C:/msys64/mingw64")
+    set(OPENSSL_ROOT_DIR "C:/msys64/mingw64" CACHE PATH "OpenSSL root path" FORCE)
+endif()
 find_package(OpenSSL REQUIRED)
 find_package(ZLIB REQUIRED)
+find_package(Threads REQUIRED)
 find_package(nlohmann_json REQUIRED)
 
 # Fetch and configure IXWebSocket
@@ -51,6 +54,7 @@ target_link_libraries(polymarket_core PUBLIC
     OpenSSL::SSL
     OpenSSL::Crypto
     ZLIB::ZLIB
+    Threads::Threads
     nlohmann_json::nlohmann_json
 )
 

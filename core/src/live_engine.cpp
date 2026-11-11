@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <chrono>
 #include <thread>
+#include <mutex>
 #include <csignal>
 #include <atomic>
 #include <fstream>
@@ -418,6 +419,9 @@ void run_live_mode(TcpPublisher& publisher) {
 int main(int argc, char* argv[]) {
     signal(SIGINT, handle_signal);
     signal(SIGTERM, handle_signal);
+#ifndef _WIN32
+    signal(SIGPIPE, SIG_IGN);
+#endif
 
     ix::initNetSystem();
 

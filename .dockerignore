@@ -1,0 +1,10 @@
+build/
+node_modules/
+gateway/node_modules/
+dashboard/node_modules/
+dashboard/dist/
+.git/
+.vscode/
+data/polymarket_recording.jsonl
+*.exe
+*.log

@@ -191,3 +191,18 @@ This document records key technical decisions, options evaluated, and the ration
   - `PersistenceWorker`: Connects to MongoDB and sets TTL index (`expireAfterSeconds: 86400`). If offline, falls back to in-memory capped ring buffers (retaining the last 1,000 snapshots and trades).
   - BullMQ Queue: Configured if Redis is online; falls back to an asynchronous in-process queue if Redis is absent.
 - **Rationale**: Eliminates fragile setup friction. The system runs fully production-ready when Redis and MongoDB are available, yet works seamlessly and out of the box for quick evaluation and CI/CD pipelines.
+
+
+---
+
+## ADR-013: Multi-Stage Docker Deployment Architecture for Render
+
+- **Context**: In Phase 8, we need to deploy the C++17 `live_engine`, Node.js gateway, and React dashboard to Render as a single maintainable Web Service while keeping Linux compatibility and small image size.
+- **Decision**: Authored a 3-stage `Dockerfile` based on `debian:bookworm-slim` / `node:22-bookworm-slim` plus a `render.yaml` Blueprint:
+  1. `cpp-builder`: Compiles `live_engine` and all C++ test targets in Release mode and runs `ctest --output-on-failure` during build.
+  2. `dashboard-builder`: Bundles `/dashboard` via Vite.
+  3. `runtime`: Minimal Node.js 22 container with `libssl3`, `zlib1g`, `ca-certificates`, running `docker-entrypoint.mjs` to supervise both `live_engine` (`ENGINE_MODE=live` by default) and `gateway/server.js` bound to Render's `$PORT` with health checks at `/api/health`.
+- **Rationale**:
+  - Matching Debian Bookworm ABI between C++ build and Node runtime prevents shared-library mismatches (`libssl.so.3`, `libstdc++.so.6`).
+  - Running `live_engine` inside the same container as the gateway preserves sub-millisecond localhost TCP IPC without cross-service networking latency or extra paid Render services.
+  - Skipping localhost Redis/Mongo probes in production when `REDIS_URL`/`MONGO_URI` are unset ensures sub-second container boot and immediate health-check readiness.

@@ -6,6 +6,7 @@
 
 #ifndef _WIN32
 #include <netinet/tcp.h>
+#include <sys/select.h>
 #include <fcntl.h>
 #endif
 
@@ -168,8 +169,27 @@ void TcpPublisher::broadcast(const std::string& json_line) {
     active_clients.reserve(clients_.size());
 
     for (socket_t client : clients_) {
-        int bytes_sent = send(client, payload.data(), static_cast<int>(payload.size()), 0);
-        if (bytes_sent == SOCKET_ERROR || bytes_sent == 0) {
+        size_t total_sent = 0;
+        bool ok = true;
+        int send_flags = 0;
+#ifdef MSG_NOSIGNAL
+        send_flags = MSG_NOSIGNAL;
+#endif
+        while (total_sent < payload.size()) {
+            int bytes_sent = send(
+                client,
+                payload.data() + total_sent,
+                static_cast<int>(payload.size() - total_sent),
+                send_flags
+            );
+            if (bytes_sent == SOCKET_ERROR || bytes_sent == 0) {
+                ok = false;
+                break;
+            }
+            total_sent += static_cast<size_t>(bytes_sent);
+        }
+
+        if (!ok) {
 #ifdef _WIN32
             closesocket(client);
 #else

@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: polymarket-orderbook-engine
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ENGINE_MODE
+        value: live
+      - key: CORE_TCP_PORT
+        value: "9001"

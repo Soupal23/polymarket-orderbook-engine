@@ -63,6 +63,12 @@ export class StateStore {
   }
 
   async init() {
+    if (process.env.NODE_ENV === 'production' && !process.env.REDIS_URL) {
+      this.redisOnline = false;
+      console.log(`[StateStore] No REDIS_URL configured in production; running in fast In-Memory cache mode.`);
+      return;
+    }
+
     try {
       this.redisClient = new Redis(this.redisUrl, {
         maxRetriesPerRequest: 1,
