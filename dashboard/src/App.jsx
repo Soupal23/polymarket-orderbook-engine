@@ -7,7 +7,7 @@ import { DepthChart } from './components/DepthChart';
 import { PriceSeriesChart } from './components/PriceSeriesChart';
 import { TradesFeed } from './components/TradesFeed';
 
-const DEFAULT_ASSET_ID = "95574512423985392683838234327660995166649195744297839352932371900160867086053";
+const DEFAULT_ASSET_ID = "54533043819946592547517511176940999955633860128497669742211153063842200957669";
 
 export function App() {
   const [markets, setMarkets] = useState([]);
@@ -19,6 +19,11 @@ export function App() {
   const [totalUpdates, setTotalUpdates] = useState(0);
 
   const socketRef = useRef(null);
+  const selectedAssetRef = useRef(selectedAssetId);
+
+  useEffect(() => {
+    selectedAssetRef.current = selectedAssetId;
+  }, [selectedAssetId]);
 
   // 1. Initial Load: Fetch markets
   useEffect(() => {
@@ -30,24 +35,25 @@ export function App() {
         }
       })
       .catch((err) => console.warn('Failed fetching initial markets:', err));
-
-    // Fetch initial trades
-    fetch(`/api/trades/${selectedAssetId}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (Array.isArray(data)) setTrades(data);
-      })
-      .catch(() => {});
   }, []);
 
-  // 2. Fetch specific state when selected asset changes
+  // 2. Fetch specific state and trades when selected asset changes
   useEffect(() => {
     fetch(`/api/state/${selectedAssetId}`)
       .then((res) => res.json())
       .then((state) => {
         if (state && !state.error) {
           setBookState(state);
+        } else {
+          setBookState(null);
         }
+      })
+      .catch(() => {});
+
+    fetch(`/api/trades/${selectedAssetId}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) setTrades(data);
       })
       .catch(() => {});
 
@@ -55,14 +61,13 @@ export function App() {
     setPriceHistory([]);
   }, [selectedAssetId]);
 
-  // 3. Socket.IO Connection & Event Handlers
+  // 3. Socket.IO Connection & Event Handlers (persistent across market switches)
   useEffect(() => {
-    const socket = io('/', { transports: ['websocket', 'polling'] });
+    const socket = io('/');
     socketRef.current = socket;
 
     socket.on('connect', () => {
-      setEngineConnected(true);
-      socket.emit('subscribe', selectedAssetId);
+      socket.emit('subscribe', selectedAssetRef.current);
     });
 
     socket.on('disconnect', () => {
@@ -81,8 +86,9 @@ export function App() {
 
     socket.on('book_update', (msg) => {
       setTotalUpdates((prev) => prev + 1);
+      setEngineConnected(true);
 
-      if (msg.asset_id === selectedAssetId) {
+      if (msg.asset_id === selectedAssetRef.current) {
         setBookState(msg);
 
         // Append to rolling price history
@@ -116,7 +122,7 @@ export function App() {
     });
 
     socket.on('trade', (tradeMsg) => {
-      if (!tradeMsg.asset_id || tradeMsg.asset_id === selectedAssetId) {
+      if (!tradeMsg.asset_id || tradeMsg.asset_id === selectedAssetRef.current) {
         setTrades((prev) => [tradeMsg, ...prev].slice(0, 50));
       }
     });
@@ -124,7 +130,7 @@ export function App() {
     return () => {
       socket.disconnect();
     };
-  }, [selectedAssetId]);
+  }, []);
 
   const handleSelectAsset = (assetId) => {
     if (socketRef.current) {

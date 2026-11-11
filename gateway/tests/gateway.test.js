@@ -16,7 +16,7 @@ const mockEngine = net.createServer((socket) => {
   // Send test snapshot immediately
   const sampleMsg = {
     event: 'snapshot',
-    asset_id: '95574512423985392683838234327660995166649195744297839352932371900160867086053',
+    asset_id: '54533043819946592547517511176940999955633860128497669742211153063842200957669',
     market_id: 'test_market',
     state: 'LIVE',
     stale_reason: '',
@@ -60,7 +60,7 @@ mockEngine.listen(TEST_CORE_PORT, async () => {
       console.log('✓ /api/markets test passed');
 
       // 3. Test /api/state/:asset_id
-      const assetId = '95574512423985392683838234327660995166649195744297839352932371900160867086053';
+      const assetId = '54533043819946592547517511176940999955633860128497669742211153063842200957669';
       const stateRes = await fetch(`http://127.0.0.1:${TEST_GATEWAY_PORT}/api/state/${assetId}`);
       const stateData = await stateRes.json();
       assert.strictEqual(stateRes.status, 200);

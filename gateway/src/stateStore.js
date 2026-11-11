@@ -1,50 +1,50 @@
 import Redis from 'ioredis';
 
-// Market metadata map for the 8 outcome tokens across 4 markets
+// Market metadata map for the 8 outcome tokens across 4 markets (matching docs/feed-notes.md)
 export const MARKET_METADATA = {
-  "95574512423985392683838234327660995166649195744297839352932371900160867086053": {
+  "54533043819946592547517511176940999955633860128497669742211153063842200957669": {
     marketName: "Democratic Nominee 2028",
     candidate: "Gavin Newsom",
     outcome: "Yes",
     slug: "democratic-nominee-2028-newsom"
   },
-  "57529458925585098319698544835003509172087541244301597554900898517616149175404": {
+  "87854174148074652060467921081181402357467303721471806610111179101805869578687": {
     marketName: "Democratic Nominee 2028",
     candidate: "Gavin Newsom",
     outcome: "No",
     slug: "democratic-nominee-2028-newsom"
   },
-  "91104593444265738604715201416805886361899173827299102435552391038562777174624": {
-    marketName: "Xi Jinping General Secretary in 2027",
+  "32338220190071351435772801779725302244575775216413325951443816017994629993401": {
+    marketName: "Xi Jinping out before 2027?",
     candidate: "Xi Jinping",
     outcome: "Yes",
-    slug: "xi-jinping-leader-2027"
+    slug: "xi-jinping-out-2027"
   },
-  "50831631527376041071060938450117454911019058693895995079860655297394947932617": {
-    marketName: "Xi Jinping General Secretary in 2027",
+  "25659310674993675562345759665114759892400026242514633218387667107987341231962": {
+    marketName: "Xi Jinping out before 2027?",
     candidate: "Xi Jinping",
     outcome: "No",
-    slug: "xi-jinping-leader-2027"
+    slug: "xi-jinping-out-2027"
   },
-  "85802166699665551322055621404177196025287739546059003588998188151242817290547": {
+  "91031279171981959197361710127213577102576826515163085396576756946418341946256": {
     marketName: "Democratic Nominee 2028",
     candidate: "Pete Buttigieg",
     outcome: "Yes",
     slug: "democratic-nominee-2028-buttigieg"
   },
-  "20111267499119642008544577884841961448831934988755018654854593121557997970724": {
+  "18494065527924073750217237765784380365430319396356251245973222791140100738948": {
     marketName: "Democratic Nominee 2028",
     candidate: "Pete Buttigieg",
     outcome: "No",
     slug: "democratic-nominee-2028-buttigieg"
   },
-  "21742633143463906290569050155826241533067272736897614950488156847949938836455": {
+  "107064985435494333113391038470401719113272800530429703182710416066774068907304": {
     marketName: "Democratic Nominee 2028",
     candidate: "Alexandria Ocasio-Cortez",
     outcome: "Yes",
     slug: "democratic-nominee-2028-aoc"
   },
-  "108845704514578847849479901460395349472946252924163953531498114498305096181156": {
+  "65176072261324737856085688071627118509549293922582857186996392180609764586527": {
     marketName: "Democratic Nominee 2028",
     candidate: "Alexandria Ocasio-Cortez",
     outcome: "No",

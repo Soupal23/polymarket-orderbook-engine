@@ -24,17 +24,25 @@ void handle_signal(int) {
     g_engine_running.store(false);
 }
 
-// 8 liquid outcome tokens across 4 markets
+// 8 liquid outcome tokens across 4 markets (matching docs/feed-notes.md & data/polymarket_recording.jsonl)
 const std::vector<std::string> DEFAULT_ASSET_IDS = {
-    "95574512423985392683838234327660995166649195744297839352932371900160867086053", // Gavin Newsom Yes
-    "57529458925585098319698544835003509172087541244301597554900898517616149175404", // Gavin Newsom No
-    "91104593444265738604715201416805886361899173827299102435552391038562777174624", // Xi Jinping Yes
-    "50831631527376041071060938450117454911019058693895995079860655297394947932617", // Xi Jinping No
-    "85802166699665551322055621404177196025287739546059003588998188151242817290547", // Pete Buttigieg Yes
-    "20111267499119642008544577884841961448831934988755018654854593121557997970724", // Pete Buttigieg No
-    "21742633143463906290569050155826241533067272736897614950488156847949938836455", // Alexandria Ocasio-Cortez Yes
-    "108845704514578847849479901460395349472946252924163953531498114498305096181156"  // Alexandria Ocasio-Cortez No
+    "54533043819946592547517511176940999955633860128497669742211153063842200957669", // Gavin Newsom Yes
+    "87854174148074652060467921081181402357467303721471806610111179101805869578687", // Gavin Newsom No
+    "32338220190071351435772801779725302244575775216413325951443816017994629993401", // Xi Jinping Yes
+    "25659310674993675562345759665114759892400026242514633218387667107987341231962", // Xi Jinping No
+    "91031279171981959197361710127213577102576826515163085396576756946418341946256", // Pete Buttigieg Yes
+    "18494065527924073750217237765784380365430319396356251245973222791140100738948", // Pete Buttigieg No
+    "107064985435494333113391038470401719113272800530429703182710416066774068907304", // Alexandria Ocasio-Cortez Yes
+    "65176072261324737856085688071627118509549293922582857186996392180609764586527"   // Alexandria Ocasio-Cortez No
 };
+
+void broadcast_all_snapshots(const std::unordered_map<std::string, OrderBook>& books, TcpPublisher& publisher) {
+    for (const auto& kv : books) {
+        if (kv.second.has_bids() || kv.second.has_asks()) {
+            publisher.broadcast(TcpPublisher::format_book_message(kv.second, "snapshot"));
+        }
+    }
+}
 
 void run_replay_mode(const std::string& filepath, double speed, bool loop, TcpPublisher& publisher) {
     std::cout << "[LiveEngine] Starting Replay Mode: " << filepath << " (speed: " << speed << "x, loop: " << (loop ? "yes" : "no") << ")\n";
@@ -44,7 +52,20 @@ void run_replay_mode(const std::string& filepath, double speed, bool loop, TcpPu
         books.emplace(id, OrderBook(id));
     }
 
+    // Wait briefly in looping interactive mode until Gateway connects so initial line-1 snapshots aren't dropped
+    if (loop && publisher.client_count() == 0) {
+        std::cout << "[LiveEngine] Waiting for gateway client before streaming initial snapshot...\n";
+        while (g_engine_running.load() && publisher.client_count() == 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        // Small grace period to ensure client socket recv loop is ready
+        if (g_engine_running.load()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+    }
+
     uint64_t total_updates = 0;
+    size_t last_client_count = publisher.client_count();
     auto start_wall_time = std::chrono::steady_clock::now();
 
     do {
@@ -60,6 +81,13 @@ void run_replay_mode(const std::string& filepath, double speed, bool loop, TcpPu
         while (g_engine_running.load() && std::getline(file, line)) {
             if (line.empty()) continue;
 
+            // If a new gateway client connected mid-stream, immediately sync it with full book snapshots
+            size_t current_clients = publisher.client_count();
+            if (current_clients > last_client_count) {
+                broadcast_all_snapshots(books, publisher);
+            }
+            last_client_count = current_clients;
+
             try {
                 json j = json::parse(line);
                 if (!j.contains("raw")) continue;
@@ -67,7 +95,7 @@ void run_replay_mode(const std::string& filepath, double speed, bool loop, TcpPu
                 uint64_t current_recv_ns = j.value("recv_time_ns", 0ULL);
                 if (speed > 0.0 && prev_recv_ns > 0 && current_recv_ns > prev_recv_ns) {
                     int64_t delta_ns = current_recv_ns - prev_recv_ns;
-                    delta_ns = std::min<int64_t>(delta_ns, 500000000LL); // 500ms max gap
+                    delta_ns = std::min<int64_t>(delta_ns, 250000000LL); // 250ms max idle gap
                     int64_t sleep_ns = static_cast<int64_t>(delta_ns / speed);
                     if (sleep_ns > 5000) {
                         std::this_thread::sleep_for(std::chrono::nanoseconds(sleep_ns));
@@ -214,6 +242,7 @@ void run_replay_mode(const std::string& filepath, double speed, bool loop, TcpPu
 void run_live_mode(TcpPublisher& publisher) {
     std::cout << "[LiveEngine] Starting Live Polymarket WebSocket Mode...\n";
 
+    std::mutex books_mutex;
     std::unordered_map<std::string, OrderBook> books;
     for (const auto& id : DEFAULT_ASSET_IDS) {
         books.emplace(id, OrderBook(id));
@@ -231,6 +260,7 @@ void run_live_mode(TcpPublisher& publisher) {
         (void)recv_time_ns;
         try {
             json raw = json::parse(raw_msg);
+            std::lock_guard<std::mutex> lock(books_mutex);
 
             // 1. Initial Snapshot Array
             if (raw.is_array()) {
@@ -349,19 +379,37 @@ void run_live_mode(TcpPublisher& publisher) {
 
     std::cout << "[LiveEngine] Connected and publishing live market feed to TCP clients.\n";
     auto start_time = std::chrono::steady_clock::now();
+    size_t last_client_count = publisher.client_count();
+    int tick_counter = 0;
 
     while (g_engine_running.load()) {
-        std::this_thread::sleep_for(std::chrono::seconds(2));
-        auto now = std::chrono::steady_clock::now();
-        double elapsed = std::chrono::duration<double>(now - start_time).count();
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
-        json hb;
-        hb["event"] = "heartbeat";
-        hb["total_updates"] = total_updates.load();
-        hb["clients"] = publisher.client_count();
-        hb["active_books"] = books.size();
-        hb["uptime_seconds"] = elapsed;
-        publisher.broadcast(hb.dump());
+        size_t current_clients = publisher.client_count();
+        if (current_clients > last_client_count) {
+            std::lock_guard<std::mutex> lock(books_mutex);
+            broadcast_all_snapshots(books, publisher);
+        }
+        last_client_count = current_clients;
+
+        if (++tick_counter % 10 == 0) {
+            auto now = std::chrono::steady_clock::now();
+            double elapsed = std::chrono::duration<double>(now - start_time).count();
+
+            size_t active_books_count = 0;
+            {
+                std::lock_guard<std::mutex> lock(books_mutex);
+                active_books_count = books.size();
+            }
+
+            json hb;
+            hb["event"] = "heartbeat";
+            hb["total_updates"] = total_updates.load();
+            hb["clients"] = current_clients;
+            hb["active_books"] = active_books_count;
+            hb["uptime_seconds"] = elapsed;
+            publisher.broadcast(hb.dump());
+        }
     }
 
     recorder.stop();

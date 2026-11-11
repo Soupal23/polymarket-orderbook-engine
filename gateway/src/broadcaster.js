@@ -15,6 +15,7 @@ export class Broadcaster {
     this.lastEmitTimes = new Map(); // asset_id -> timestamp
     this.throttleTimers = new Map(); // asset_id -> timeout handle
     this.connectedSockets = 0;
+    this.coreConnected = false;
 
     this.setupSocketHandlers();
   }
@@ -24,17 +25,26 @@ export class Broadcaster {
       this.connectedSockets++;
       console.log(`[Broadcaster] Client connected: ${socket.id} (total: ${this.connectedSockets})`);
 
-      // Immediately send current market overview to newly connected client
+      // Immediately send current market overview and engine status to newly connected client
       try {
         const allMarkets = await this.stateStore.getAllMarkets();
         socket.emit('initial_state', { markets: allMarkets });
+        socket.emit('engine_status', { connected: this.coreConnected });
       } catch (err) {
         console.error(`[Broadcaster] Failed sending initial state:`, err.message);
       }
 
-      socket.on('subscribe', (assetId) => {
+      socket.on('subscribe', async (assetId) => {
         if (assetId) {
           socket.join(assetId);
+          try {
+            const current = await this.stateStore.getBookState(assetId);
+            if (current) {
+              socket.emit('book_update', current);
+            }
+          } catch (err) {
+            console.error(`[Broadcaster] Failed sending initial book state:`, err.message);
+          }
         }
       });
 
@@ -114,6 +124,7 @@ export class Broadcaster {
   }
 
   broadcastEngineStatus(status) {
+    this.coreConnected = Boolean(status?.connected);
     this.io.emit('engine_status', status);
   }
 

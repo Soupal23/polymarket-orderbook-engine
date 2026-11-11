@@ -63,7 +63,15 @@ setTimeout(async () => {
       console.log(`✓ Markets count: ${markets.length}`);
       assert.ok(markets.length >= 8, 'Expected 8 tracked outcome tokens');
 
-      // 3. Check Dashboard Static Serving
+      // 3. Check populated orderbook state for golden_asset_yes
+      const stateRes = await fetch('http://127.0.0.1:4000/api/state/golden_asset_yes');
+      assert.strictEqual(stateRes.status, 200, 'State endpoint should return 200 for replayed asset');
+      const state = await stateRes.json();
+      assert.strictEqual(state.state, 'LIVE', 'Orderbook state should be LIVE');
+      assert.ok(state.bids.length > 0 && state.asks.length > 0, 'Orderbook should have populated bids and asks');
+      console.log(`✓ Book State LIVE: best_bid=${state.best_bid}, best_ask=${state.best_ask}, bids=${state.bids.length}, asks=${state.asks.length}`);
+
+      // 4. Check Dashboard Static Serving
       const pageRes = await fetch('http://127.0.0.1:4000/');
       assert.strictEqual(pageRes.status, 200, 'Frontend dashboard index.html should return 200');
       const htmlText = await pageRes.text();
