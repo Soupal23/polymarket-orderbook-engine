@@ -117,16 +117,7 @@ Dashboard opens at **`http://localhost:4000`**.
 
 ---
 
-## Deploying to Render
 
-This repository includes a multi-stage [`Dockerfile`](Dockerfile), [`docker-entrypoint.mjs`](docker-entrypoint.mjs), and [`render.yaml`](render.yaml) Blueprint configured for Render Web Services:
-
-1. Push this repository to GitHub.
-2. In the [Render Dashboard](https://dashboard.render.com/), choose **New +** $\rightarrow$ **Blueprint** (or **Web Service** $\rightarrow$ **Docker**).
-3. Select the repository. Render detects `render.yaml` automatically (`runtime: docker`, health check `/api/health`, `ENGINE_MODE=live`).
-4. *(Optional)* Add `REDIS_URL` and `MONGO_URI` environment variables in Render to enable external Redis state caching and MongoDB TTL persistence; if omitted, the gateway uses its resilient in-memory cache and ring-buffer fallback automatically.
-
----
 
 ## Problems Encountered & Engineering Solutions
 
@@ -140,8 +131,3 @@ This repository includes a multi-stage [`Dockerfile`](Dockerfile), [`docker-entr
 
 ---
 
-## Resume-Ready Bullet Points
-
-- **Built a low-latency C++17 Limit Order Book (CLOB) engine** for Polymarket prediction markets using fixed-point $10^4$ arithmetic and a bounded 10,001-slot tick array (`DirectArrayOrderBook`), achieving **7.39M ops/sec** (+35% over `std::map`) and reducing **p99.9 tail latency by 6.07x** (10,440 ns $\rightarrow$ 1,720 ns) across 12,982 live-captured updates with 0 invariant violations.
-- **Engineered a self-healing market-data & deterministic replay pipeline** featuring timestamp-regression desync detection (`LIVE`/`STALE`/`REBUILDING` state machine), seeded fault injection recovery tests, and bit-for-bit reproducible 64-bit FNV-1a replay verification (`0x7bf683492c841f21`).
-- **Architected an end-to-end streaming stack** publishing real-time L2 depth over TCP (`TCP_NODELAY`) into a Node.js/Socket.IO gateway with 50ms per-token update coalescing, dual-mode Redis/MongoDB persistence, and a live React + Recharts trading terminal.
